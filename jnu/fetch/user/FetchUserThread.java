@@ -14,9 +14,9 @@ class FetchUserThread implements Runnable {
     private static int ID = 0;
     private PriorityRQ<Task> rq;
     private CallBacker callBacker;
-    private final int trys = 3;
     private String accessToken;
-    private final long sleep = 2000;
+    private final int sleep = 2000;    /* 基本等待时间 */
+    private final int trys = 3;        /* 最大尝试取任务次数 */
     private final int id = ID++;
 
     FetchUserThread(PriorityRQ<Task> rq,
@@ -37,18 +37,23 @@ class FetchUserThread implements Runnable {
         boolean ret;
         while (true) {
             Task task = null;
-            for (int i = 0; i < trys; i++) {
+                /* 尝试取任务队列三次
+                *  每次失败都停止一段时间
+                *  等待间隔采取二进制指数退逼算法
+                * */
+            for (int i = 1; i <= trys; i++) {
                 try {
                     task = rq.get();
                     if (task != null) {
                         break;
                     }
-                    Thread.sleep(sleep << i);
+                        /* 加1是为了避免出现睡眠时间为0的情况 */
+                    Thread.sleep(sleep * (int)(Math.random()* (1 << i)) + 1);
                 } catch (Exception ignore) {
                 }
             }
 
-            if (task == null) {
+            if (task == null) {//任务队列为空直接返回
                 ret = true;
                 break;
             }

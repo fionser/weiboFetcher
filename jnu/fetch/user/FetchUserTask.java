@@ -30,7 +30,6 @@ class FetchUserTask implements Task {
     FetchUserTask(User user, DBUtil db) {
         this.user = user;
         this.db = db;
-        this.page = new Paging(1, PAGE_SIZE);
         this.pageWriter = new PageWriter(user);
     }
 
@@ -40,6 +39,7 @@ class FetchUserTask implements Task {
 
     private void getPageNr() throws WeiboException {
         if (totalPage == -1) {
+            this.page = new Paging(1, PAGE_SIZE);
             String uid = String.valueOf(user.getUid());
             Timeline timeline = new Timeline();
             timeline.setToken(accessToken);
@@ -49,40 +49,38 @@ class FetchUserTask implements Task {
             totalPage = totalPage < MAX_PAGE ? totalPage : MAX_PAGE;
             for (Status status : statusWapper.getStatuses()) {
                 if (!pageWriter.write(status)) {
-                    page.setPage(totalPage);
+                    page.setPage(totalPage + 1);
                     break;
                 }
             }
         }
     }
 
-    private void getPage() throws WeiboException {
+    private void getPages() throws WeiboException {
         String uid = String.valueOf(user.getUid());
         StatusWapper statusWapper;
         Timeline timeline = new Timeline();
         timeline.setToken(accessToken);
-        System.out.printf(">User %s TotalPage %d\n", uid, totalPage);
+        System.out.printf(">User %s %d Pages left\n", uid, totalPage - page.getPage());
         L:
-        for (int i = page.getPage(); i <= totalPage; i++) {
-            page.setPage(i);
+        for (page.setPage(page.getPage() + 1); page.getPage() <= totalPage; page.setPage(page.getPage() + 1)) {
             statusWapper = timeline.getUserTimelineByUid(uid, page, 0, 0);
             for (Status status : statusWapper.getStatuses()) {
                     /* 当出现了太旧的消息，则直接退出当前任务，并设置完成标志 */
                 if (!pageWriter.write(status)) {
-                    page.setPage(totalPage);
+                    System.out.printf(">User %s Page %d too old.\n", uid, page.getPage());
+                    page.setPage(totalPage + 1);
                     break L;
                 }
-                pageWriter.write(status);
             }
             try {
                 Thread.sleep(1000L);
             } catch (InterruptedException ignore) {
             }
         }
-        page.setPage(totalPage);
-        /*写到磁盘上*/
+            /*Pages写到磁盘上*/
         pageWriter.flush();
-        /*更新时间戳*/
+            /*更新时间戳*/
         this.user.setTimestamp(Calendar.getInstance().getTimeInMillis());
         db.updateUser(this.user);
     }
@@ -110,19 +108,24 @@ class FetchUserTask implements Task {
     @Override
     public void execute() {
         try {
-            getPageNr();
-            page.setPage(2);
-            getPage();
+                /*先取得第一个Page和总的Page数目
+                 *有可能在取第一个Page的时候就超时*/
+            if (totalPage == -1) {
+                getPageNr();
+            }
+                /*第一个Page取完，则下一个要取的Page为第二页*/
+            getPages();
         } catch (WeiboException ignore) {
-            System.err.printf(">Uid %d out of rate limit\n", user.getUid());
-        } catch (Exception e) {
-            System.err.printf(">Error %s\n", e.getMessage());
+            System.err.printf(">Uid %d out of rate limit.\n", user.getUid());
         }
     }
 
     @Override
     public boolean isFinish() {
-        return totalPage != -1 && (page.getPage() >= totalPage);
+        /* Guard Condition : totalPage == -1
+        *  表明第一个Page都没有取
+        * */
+        return totalPage != -1 && (page.getPage() > totalPage);
     }
 
     @Override

@@ -22,6 +22,7 @@ class Scheduler extends Thread implements CallBacker {
     private final String[] accessTokens = new String[threadCnt];
     private int nextAccessToken;
     private AtomicInteger runningThread = new AtomicInteger(0);
+    private AtomicInteger overFlag = new AtomicInteger(0);
     private List<User> users;
     private Boolean daemon = true;
     private Thread threadsDaemon, rqDaemon;
@@ -120,49 +121,62 @@ class Scheduler extends Thread implements CallBacker {
     private void sendThread() {
         FetchUserThread runnable = new FetchUserThread(rq, this, accessTokens[nextAccessToken]);
         runningThread.incrementAndGet();
-        System.out.printf(">Active Thread %d AT:%s\n", runnable.getId(), accessTokens[nextAccessToken]);
-        nextAccessToken = (nextAccessToken + 1) % threadCnt;
+        System.out.printf(">Active Thread %d with AT_%d\n", runnable.getId(), nextAccessToken);
+        nextAccessToken = nextAccessToken + 1 > threadCnt ? 0 : nextAccessToken + 1;
         new Thread(runnable).start();
     }
 
     private void killDaemons() {
-        threadsDaemon.interrupt();
-        rqDaemon.interrupt();
         daemon = false;
+        if (threadsDaemon.isAlive()) {
+            threadsDaemon.interrupt();
+        }
+        if (rqDaemon.isAlive()) {
+            rqDaemon.interrupt();
+        }
     }
 
     private void schedule() {
+        threadsDaemon = new Thread(threadsDaemon());
+        threadsDaemon.start();
         rqDaemon = new Thread(rqDaemon());
         rqDaemon.setPriority(Thread.MAX_PRIORITY);
         rqDaemon.start();
-        threadsDaemon = new Thread(threadsDaemon());
-        threadsDaemon.start();
-
+        try {
+            Thread.sleep(1000L);/*等守护进程先启动一下*/
+        } catch (InterruptedException ignore) {
+        }
         while (true) {
             if (runningThread.get() <= 0) {
                 if (rq.isEmpty()) {
                     break;
                 } else {//没有了工作线程，但是还有任务。
                     /*说明都超速率*/
-                    System.out.println(">All threads got rate limit.\n");
+                    System.out.println(">All threads got rate limit.");
                 }
             }
-            System.out.println("Main is checking...");
+            System.out.println(">Main is checking...");
             try {
                 Thread.sleep(1000 * 60L);
             } catch (InterruptedException ignore) {
             }
         }
         killDaemons();
-        System.out.println("Main Over-ing");
+        System.out.println(">Main Over-ing");
         db.close();
     }
 
     @Override
     public void callback(boolean success) {
         runningThread.decrementAndGet();
-        if (success) {
-            interrupt();//队列为空
+        if (success) {//队列为空
+                /* 当累积有一半的线程发现任务队列为空
+                *
+                * */
+            if (overFlag.incrementAndGet() >= (threadCnt >> 1)) {
+                killDaemons();
+            }
+            interrupt();
         }
     }
 }
