@@ -42,24 +42,27 @@ class Scheduler extends Thread implements CallBacker {
             public void run() {
                 while (daemon) {
                     long time = System.currentTimeMillis();
-                    try {
-                        if (!rq.isEmpty()) {
-                            int tskInQue = rq.size();
+                    if (!rq.isEmpty()) {
+                        int tskInQue = rq.size();
                             /*一次发射所有的线程，10秒间隔*/
-                            for (int i = 0; i < tskInQue && i < threadCnt; i++) {
-                                sendThread();
-                                try {
-                                    Thread.sleep(1000L * 10);
-                                } catch (Exception ignore) {
-                                }
+                        for (int i = 0; i < tskInQue && i < threadCnt; i++) {
+                            sendThread();
+                            try {
+                                Thread.sleep(1000L * 10);
+                            } catch (Exception ignore) {
                             }
                         }
-                        long timeSleep = 1000L * 60 * 30 - System.currentTimeMillis() + time;
-                        System.out.printf("ThreadDaemon going to wait %d sec.\n", timeSleep / 1000);
-                        Thread.sleep(timeSleep);
-                    } catch (Exception ignore) {
+                    }
+                    long timeSleep = 1000L * 60 * 30 - System.currentTimeMillis() + time;
+                    System.out.printf(">====ThreadDaemon going to wait %d sec.====\n", timeSleep / 1000);
+                    synchronized (this) {
+                        try {
+                            wait(timeSleep);
+                        } catch (InterruptedException ignore) {
+                        }
                     }
                 }
+                System.out.println("==========Thread Daemon Dead=========");
             }
         };
     }
@@ -74,11 +77,11 @@ class Scheduler extends Thread implements CallBacker {
                                 runningThread.intValue(),
                                 rq.size(),
                                 Calendar.getInstance().getTime());
-                        Thread.sleep(1000L * 30);
+                        Thread.sleep(1000L * 60);
                     } catch (Exception ignore) {
                     }
                 }
-                System.out.println();
+                System.out.println("==========Rq Daemon Dead=========");
             }
         };
     }
@@ -122,7 +125,7 @@ class Scheduler extends Thread implements CallBacker {
         FetchUserThread runnable = new FetchUserThread(rq, this, accessTokens[nextAccessToken]);
         runningThread.incrementAndGet();
         System.out.printf(">Active Thread %d with AT_%d\n", runnable.getId(), nextAccessToken);
-        nextAccessToken = nextAccessToken + 1 > threadCnt ? 0 : nextAccessToken + 1;
+        nextAccessToken = nextAccessToken + 1 >= threadCnt ? 0 : nextAccessToken + 1;
         new Thread(runnable).start();
     }
 
@@ -143,7 +146,7 @@ class Scheduler extends Thread implements CallBacker {
         rqDaemon.setPriority(Thread.MAX_PRIORITY);
         rqDaemon.start();
         try {
-            Thread.sleep(1000L);/*等守护进程先启动一下*/
+            Thread.sleep(5000L);/*等守护进程先启动一下*/
         } catch (InterruptedException ignore) {
         }
         while (true) {
