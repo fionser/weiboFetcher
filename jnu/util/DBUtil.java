@@ -42,7 +42,7 @@ public class DBUtil {
             e.printStackTrace();
         }
     }
-    public void insertNewUser(User user) {
+    public synchronized void insertNewUser(User user) {
         if (pstmtInsert == null) {
             String sql = WeiboConfig.getValue("SQL_INUSR");
             try {
@@ -126,7 +126,7 @@ public class DBUtil {
         return result;
     }
 
-    public void updateUser(User user) {
+    public synchronized void updateUser(User user) {
         if (pstmtUpdate == null) {
             String sql = WeiboConfig.getValue("SQL_REUSR");
             try {
